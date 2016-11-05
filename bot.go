@@ -1,5 +1,5 @@
-// Reddit Irc Bot that posts newest reddit post from my frontpage
-// todo rewrite using concurrency and channels
+// Reddit Irc Bot that posts newest reddit posts from your frontpage or
+// Subreddits you like
 package bot
 
 import (
@@ -34,7 +34,7 @@ type Api struct {
 	Endpoint string
 }
 
-// Oauth2
+// Oauth2 json
 type token struct {
 	Access_token string `json:"access_token"`
 	Token_type   string `json:"token_type"`
@@ -42,6 +42,7 @@ type token struct {
 	Scope        string `json:"scope"`
 }
 
+// Posts json
 type posts struct {
 	Data struct {
 		Children []struct {
@@ -89,6 +90,7 @@ func getToken(auth Oauth2, t *token) error {
 	return nil
 }
 
+// Get posts
 func fetchNewest(auth Oauth2, api Api, t *token, p *posts) error {
 	req, err := http.NewRequest("GET", "https://oauth.reddit.com"+api.Endpoint, nil)
 	if err != nil {
@@ -141,6 +143,7 @@ func (p posts) parse(last_id *uint64) (s map[int]string, e error) {
 	return s, nil
 }
 
+// Start the bot
 func Start(auth Oauth2, bot Irc, api Api) {
 	// Updated by getToken
 	var t token
@@ -150,6 +153,7 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	// Variable for checking highest id
 	var last_id uint64 = 0
 
+	// For initializing
 	started := false
 	// Start the Irc Bot
 	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
@@ -157,6 +161,7 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	ircobj.Join(bot.Irc_channel)
 	go ircobj.Loop()
 
+	// posts posts to irc
 	print := func() {
 		s, err := p.parse(&last_id)
 		if err != nil {
