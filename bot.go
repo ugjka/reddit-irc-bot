@@ -136,8 +136,8 @@ func (p posts) parse(last_id *uint64) (s map[int]string, e error) {
 		if max < id_uint {
 			max = id_uint
 		}
-		*last_id = max
 	}
+	*last_id = max
 	return s, nil
 }
 
@@ -211,7 +211,7 @@ func Start(auth Oauth2, bot Irc, api Api) {
 		case <-postsTicker.C:
 			err := fetchNewest(auth, api, &t, &p)
 			if err == nil {
-				go print()
+				print()
 			} else {
 				log.Println("Error in fetching posts: ", err)
 			}
