@@ -1,5 +1,4 @@
-// Reddit Irc Bot that posts newest reddit posts from your frontpage or
-// Subreddits you like
+// Reddit Irc Bot that posts newest reddit posts from your frontpage or any subreddit
 package bot
 
 import (
@@ -41,7 +40,6 @@ type token struct {
 	Expires_in   uint   `json:"expires_in"`
 	Scope        string `json:"scope"`
 }
-
 // Posts json
 type posts struct {
 	Data struct {
@@ -83,13 +81,11 @@ func getToken(auth Oauth2, t *token) error {
 		return err
 	}
 
-	err = json.Unmarshal(body, &t)
-	if err != nil {
+	if err := json.Unmarshal(body, &t); err != nil {
 		return err
 	}
 	return nil
 }
-
 // Get posts
 func fetchNewest(auth Oauth2, api Api, t *token, p *posts) error {
 	req, err := http.NewRequest("GET", "https://oauth.reddit.com"+api.Endpoint, nil)
@@ -113,15 +109,15 @@ func fetchNewest(auth Oauth2, api Api, t *token, p *posts) error {
 	if err != nil {
 		return err
 	}
-	err = json.Unmarshal(body, &p)
-	if err != nil {
+
+	if err := json.Unmarshal(body, &p); err != nil {
 		return err
 	}
 	return nil
 }
 
 // Makes a map of posts formatted for IRC
-func (p posts) parse(last_id *uint64) (s map[int]string, e error) {
+func (p posts) parse(last_id *uint64) (s map[int]string) {
 	s = make(map[int]string)
 	for i, _ := range p.Data.Children {
 		id_uint := base36.Decode(p.Data.Children[i].Data.Id)
@@ -140,34 +136,26 @@ func (p posts) parse(last_id *uint64) (s map[int]string, e error) {
 		}
 	}
 	*last_id = max
-	return s, nil
+	return s
 }
-
 // Start the bot
 func Start(auth Oauth2, bot Irc, api Api) {
 	// Updated by getToken
 	var t token
 	// Updated by fetchNewest
 	var p posts
-
 	// Variable for checking highest id
 	var last_id uint64 = 0
-
-	// For initializing
+	//Ignore first run
 	started := false
 	// Start the Irc Bot
 	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
 	ircobj.Connect(bot.Irc_server)
 	ircobj.Join(bot.Irc_channel)
 	go ircobj.Loop()
-
-	// posts posts to irc
+	// Prints to IRC channel
 	print := func() {
-		s, err := p.parse(&last_id)
-		if err != nil {
-			log.Println(err)
-			return
-		}
+		s := p.parse(&last_id)
 		for _, v := range s {
 			ircobj.Privmsg(bot.Irc_channel, v)
 			// Delay between posts to avoid flooding
@@ -180,14 +168,14 @@ func Start(auth Oauth2, bot Irc, api Api) {
 		if started == true {
 			break
 		}
-		err := getToken(auth, &t)
-		if err != nil {
+
+		if err := getToken(auth, &t); err != nil {
 			log.Println(err)
 			time.Sleep(time.Minute)
 			continue
 		}
-		err = fetchNewest(auth, api, &t, &p)
-		if err != nil {
+
+		if err := fetchNewest(auth, api, &t, &p); err != nil {
 			log.Println(err)
 			time.Sleep(time.Minute)
 			continue
@@ -203,9 +191,8 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	for {
 		select {
 		case <-tokenTicker.C:
-			err := getToken(auth, &t)
-			if err != nil {
-				log.Println("Error getting oauth2 token: ", err)
+			if err := getToken(auth, &t); err != nil {
+				log.Println("Oauth2: ", err)
 				for {
 					time.Sleep(time.Minute)
 					if getToken(auth, &t) == nil {
@@ -214,11 +201,10 @@ func Start(auth Oauth2, bot Irc, api Api) {
 				}
 			}
 		case <-postsTicker.C:
-			err := fetchNewest(auth, api, &t, &p)
-			if err == nil {
+			if err := fetchNewest(auth, api, &t, &p); err == nil {
 				print()
 			} else {
-				log.Println("Error in fetching posts: ", err)
+				log.Println("Fetching Posts: ", err)
 			}
 		}
 	}
