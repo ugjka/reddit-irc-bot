@@ -40,6 +40,7 @@ type token struct {
 	Expires_in   uint   `json:"expires_in"`
 	Scope        string `json:"scope"`
 }
+
 // Posts json
 type posts struct {
 	Data struct {
@@ -86,6 +87,7 @@ func getToken(auth Oauth2, t *token) error {
 	}
 	return nil
 }
+
 // Get posts
 func fetchNewest(auth Oauth2, api Api, t *token, p *posts) error {
 	req, err := http.NewRequest("GET", "https://oauth.reddit.com"+api.Endpoint, nil)
@@ -138,6 +140,7 @@ func (p posts) parse(last_id *uint64) (s map[int]string) {
 	*last_id = max
 	return s
 }
+
 // Start the bot
 func Start(auth Oauth2, bot Irc, api Api) {
 	// Updated by getToken
@@ -151,8 +154,8 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	// Start the Irc Bot
 	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
 	ircobj.Connect(bot.Irc_server)
-	ircobj.Join(bot.Irc_channel)
-	go ircobj.Loop()
+	//Rejoin the channel on reconnect
+	ircobj.AddCallback("001", func(e *irc.Event) { ircobj.Join(bot.Irc_channel) })
 	// Prints to IRC channel
 	print := func() {
 		s := p.parse(&last_id)
@@ -163,49 +166,53 @@ func Start(auth Oauth2, bot Irc, api Api) {
 		}
 	}
 
-	// Initialize
-	for {
-		if started == true {
-			break
-		}
+	go func() {
+		// Initialize
+		for {
+			if started == true {
+				break
+			}
 
-		if err := getToken(auth, &t); err != nil {
-			log.Println(err)
-			time.Sleep(time.Minute)
-			continue
-		}
-
-		if err := fetchNewest(auth, api, &t, &p); err != nil {
-			log.Println(err)
-			time.Sleep(time.Minute)
-			continue
-		}
-		started = true
-		p.parse(&last_id)
-	}
-
-	tokenTicker := time.NewTicker(time.Second*time.Duration(t.Expires_in) - api.Refresh)
-	postsTicker := time.NewTicker(api.Refresh)
-
-	// Perform tasks on tickers
-	for {
-		select {
-		case <-tokenTicker.C:
 			if err := getToken(auth, &t); err != nil {
-				log.Println("Oauth2: ", err)
-				for {
-					time.Sleep(time.Minute)
-					if getToken(auth, &t) == nil {
-						break
+				log.Println(err)
+				time.Sleep(time.Minute)
+				continue
+			}
+
+			if err := fetchNewest(auth, api, &t, &p); err != nil {
+				log.Println(err)
+				time.Sleep(time.Minute)
+				continue
+			}
+			started = true
+			p.parse(&last_id)
+		}
+
+		tokenTicker := time.NewTicker(time.Second*time.Duration(t.Expires_in) - api.Refresh)
+		postsTicker := time.NewTicker(api.Refresh)
+
+		// Perform tasks on tickers
+		for {
+			select {
+			case <-tokenTicker.C:
+				if err := getToken(auth, &t); err != nil {
+					log.Println("Oauth2: ", err)
+					for {
+						time.Sleep(time.Minute)
+						if getToken(auth, &t) == nil {
+							break
+						}
 					}
 				}
-			}
-		case <-postsTicker.C:
-			if err := fetchNewest(auth, api, &t, &p); err == nil {
-				print()
-			} else {
-				log.Println("Fetching Posts: ", err)
+			case <-postsTicker.C:
+				if err := fetchNewest(auth, api, &t, &p); err == nil {
+					print()
+				} else {
+					log.Println("Fetching Posts: ", err)
+				}
 			}
 		}
-	}
+	}()
+	//Irc Maintainence Loop
+	ircobj.Loop()
 }
