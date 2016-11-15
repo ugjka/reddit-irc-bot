@@ -125,7 +125,7 @@ func (p posts) parse(last_id *uint64) (s map[int]string) {
 	for i, _ := range p.Data.Children {
 		id_uint := base36.Decode(p.Data.Children[i].Data.Id)
 		if id_uint > *last_id {
-			s[i] = "\x02\x035[reddit]\x03 \x0312[/r/" + p.Data.Children[i].Data.Subreddit + "]\x03 " + p.Data.Children[i].Data.Title + "\x02" + " " + "https://reddit.com" + p.Data.Children[i].Data.Permalink
+			s[i] = "\x02\x035[reddit]\x03 \x0312[/r/" + p.Data.Children[i].Data.Subreddit + "]\x03 " + p.Data.Children[i].Data.Title + "\x02" + " " + "https://redd.it/" + p.Data.Children[i].Data.Id
 		}
 	}
 
