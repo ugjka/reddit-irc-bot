@@ -4,13 +4,14 @@ package bot
 import (
 	"encoding/json"
 	"errors"
-	"github.com/martinlindhe/base36"
-	irc "github.com/thoj/go-ircevent"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/martinlindhe/base36"
+	irc "github.com/thoj/go-ircevent"
 )
 
 type Oauth2 struct {
@@ -153,9 +154,17 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	started := false
 	// Start the Irc Bot
 	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
-	ircobj.Connect(bot.Irc_server)
 	//Rejoin the channel on reconnect
 	ircobj.AddCallback("001", func(e *irc.Event) { ircobj.Join(bot.Irc_channel) })
+	//Connect Loop
+	for {
+		if err := ircobj.Connect(bot.Irc_server); err == nil {
+			break
+		} else {
+			log.Println(err)
+		}
+		time.Sleep(time.Second * 5)
+	}
 	// Prints to IRC channel
 	print := func() {
 		s := p.parse(&last_id)
