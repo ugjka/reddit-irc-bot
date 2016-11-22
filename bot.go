@@ -154,6 +154,9 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	started := false
 	// Start the Irc Bot
 	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
+	ircobj.KeepAlive = 4 * time.Minute / 10
+	ircobj.Timeout = 1 * time.Minute / 10
+	ircobj.PingFreq = 15 * time.Minute / 10
 	//Rejoin the channel on reconnect
 	ircobj.AddCallback("001", func(e *irc.Event) { ircobj.Join(bot.Irc_channel) })
 	//Connect Loop
