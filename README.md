@@ -16,7 +16,8 @@ func main() {
 		Irc_channel: "#testchannel875",
 	}, bot.Api{
 		Refresh:  time.Minute, // How often check for new posts
-		Endpoint: "/new?limit=20", // Api endpoint for your frontpage, can be anything like /r/askreddit/new
+		// Api endpoints for your frontpage, can be anything like /r/askreddit/new
+		Endpoint: []string{"/new?limit=20", "/r/askreddit/new?limit=20", "/me/m/mymulti/new?limit=20"}
 	})
 }
 ```
