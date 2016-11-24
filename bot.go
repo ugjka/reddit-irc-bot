@@ -31,7 +31,7 @@ type Irc struct {
 
 type Api struct {
 	Refresh  time.Duration
-	Endpoint string
+	Endpoint []string
 }
 
 // Oauth2 json
@@ -54,6 +54,12 @@ type posts struct {
 			} `json:"data"`
 		} `json:"children"`
 	} `json:"data"`
+}
+
+type multi struct {
+	endpoint string
+	p        posts
+	last_id  uint64
 }
 
 const getTokenUrl = "https://www.reddit.com/api/v1/access_token"
@@ -90,8 +96,8 @@ func getToken(auth Oauth2, t *token) error {
 }
 
 // Get posts
-func fetchNewest(auth Oauth2, api Api, t *token, p *posts) error {
-	req, err := http.NewRequest("GET", "https://oauth.reddit.com"+api.Endpoint, nil)
+func fetchNewest(auth Oauth2, t *token, p *posts, endpoint string) error {
+	req, err := http.NewRequest("GET", "https://oauth.reddit.com"+endpoint, nil)
 	if err != nil {
 		return err
 	}
@@ -146,17 +152,19 @@ func (p posts) parse(last_id *uint64) (s map[int]string) {
 func Start(auth Oauth2, bot Irc, api Api) {
 	// Updated by getToken
 	var t token
-	// Updated by fetchNewest
+	// Initialize empty struct
 	var p posts
-	// Variable for checking highest id
-	var last_id uint64 = 0
+	multiSlice := make([]multi, 0)
+	for _, k := range api.Endpoint {
+		multiSlice = append(multiSlice, multi{k, p, 0})
+	}
 	//Ignore first run
 	started := false
 	// Start the Irc Bot
 	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
-	ircobj.KeepAlive = 4 * time.Minute / 10
-	ircobj.Timeout = 1 * time.Minute / 10
-	ircobj.PingFreq = 15 * time.Minute / 10
+	ircobj.KeepAlive = 4 * time.Minute / 3
+	ircobj.Timeout = 1 * time.Minute / 3
+	ircobj.PingFreq = 15 * time.Minute / 3
 	//Rejoin the channel on reconnect
 	ircobj.AddCallback("001", func(e *irc.Event) { ircobj.Join(bot.Irc_channel) })
 	//Connect Loop
@@ -169,8 +177,8 @@ func Start(auth Oauth2, bot Irc, api Api) {
 		time.Sleep(time.Second * 5)
 	}
 	// Prints to IRC channel
-	print := func() {
-		s := p.parse(&last_id)
+	print := func(p *multi) {
+		s := p.p.parse(&p.last_id)
 		for _, v := range s {
 			ircobj.Privmsg(bot.Irc_channel, v)
 			// Delay between posts to avoid flooding
@@ -190,14 +198,18 @@ func Start(auth Oauth2, bot Irc, api Api) {
 				time.Sleep(time.Minute)
 				continue
 			}
-
-			if err := fetchNewest(auth, api, &t, &p); err != nil {
-				log.Println(err)
-				time.Sleep(time.Minute)
-				continue
+			for i, _ := range multiSlice {
+				if err := fetchNewest(auth, &t, &multiSlice[i].p, multiSlice[i].endpoint); err != nil {
+					log.Println(err)
+					time.Sleep(time.Minute)
+					continue
+				}
+				time.Sleep(time.Second)
 			}
 			started = true
-			p.parse(&last_id)
+			for i, _ := range multiSlice {
+				multiSlice[i].p.parse(&multiSlice[i].last_id)
+			}
 		}
 
 		tokenTicker := time.NewTicker(time.Second*time.Duration(t.Expires_in) - api.Refresh)
@@ -217,10 +229,13 @@ func Start(auth Oauth2, bot Irc, api Api) {
 					}
 				}
 			case <-postsTicker.C:
-				if err := fetchNewest(auth, api, &t, &p); err == nil {
-					print()
-				} else {
-					log.Println("Fetching Posts: ", err)
+				for i, _ := range multiSlice {
+					if err := fetchNewest(auth, &t, &multiSlice[i].p, multiSlice[i].endpoint); err == nil {
+						print(&multiSlice[i])
+					} else {
+						log.Println("Fetching Posts: ", err)
+					}
+					time.Sleep(time.Second)
 				}
 			}
 		}
