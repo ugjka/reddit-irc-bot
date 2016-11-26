@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/martinlindhe/base36"
-	irc "github.com/ugjka/go-ircevent"
+	irc "github.com/thoj/go-ircevent"
 )
 
 type Oauth2 struct {
