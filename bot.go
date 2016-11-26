@@ -7,12 +7,11 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/martinlindhe/base36"
-	irc "github.com/thoj/go-ircevent"
+	irc "github.com/ugjka/go-ircevent"
 )
 
 type Oauth2 struct {
@@ -165,18 +164,6 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
 	//Rejoin the channel on reconnect
 	ircobj.AddCallback("001", func(e *irc.Event) { ircobj.Join(bot.Irc_channel) })
-	//Reconnect on quit
-	quitEvent := regexp.MustCompile("^:([^!]+)!.+QUIT")
-	ircobj.AddCallback("QUIT", func(e *irc.Event) {
-		go func(e *irc.Event) {
-			ownNick := ircobj.GetNick()
-			quitNick := quitEvent.FindStringSubmatch(e.Raw)[1]
-			if ownNick == quitNick && strings.Contains(e.Raw, "Ping timeout") {
-				log.Println("Timeout detected, reconnecting to " + bot.Irc_server)
-				ircobj.Reconnect()
-			}
-		}(e)
-	})
 	//Connect Loop
 	for {
 		if err := ircobj.Connect(bot.Irc_server); err == nil {
