@@ -177,7 +177,9 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	print := func(p *multi) {
 		s := p.p.parse(&p.last_id)
 		for _, v := range s {
-			ircobj.Privmsg(bot.Irc_channel, v)
+			if ircobj.Connected() {
+				ircobj.Privmsg(bot.Irc_channel, v)
+			}
 			// Delay between posts to avoid flooding
 			time.Sleep(time.Second * 1)
 		}
