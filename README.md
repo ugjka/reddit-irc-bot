@@ -13,7 +13,8 @@ func main() {
 		Irc_nick:    "ircnick123",
 		Irc_name:    "reddit_bot",
 		Irc_server:  "irc.freenode.net:6666",
-		Irc_channel: "#testchannel875",
+		Irc_channel: []string{"#testchannel875"},
+		Irc_tls:		 false,
 	}, bot.Api{
 		Refresh:  time.Minute, // How often check for new posts
 		// Api endpoints for your frontpage, can be anything like /r/askreddit/new

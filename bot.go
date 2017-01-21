@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/martinlindhe/base36"
-	irc "github.com/thoj/go-ircevent"
+	irc "github.com/ugjka/dumbirc"
 )
 
 type Oauth2 struct {
@@ -26,7 +26,8 @@ type Irc struct {
 	Irc_nick    string
 	Irc_name    string
 	Irc_server  string
-	Irc_channel string
+	Irc_channel []string
+	Irc_tls     bool
 }
 
 type Api struct {
@@ -161,24 +162,26 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	//Ignore first run
 	started := false
 	// Start the Irc Bot
-	ircobj := irc.IRC(bot.Irc_nick, bot.Irc_name)
+	ircobj := irc.New(bot.Irc_nick, bot.Irc_name, bot.Irc_server, bot.Irc_tls)
 	//Rejoin the channel on reconnect
-	ircobj.AddCallback("001", func(e *irc.Event) { ircobj.Join(bot.Irc_channel) })
-	//Connect Loop
-	for {
-		if err := ircobj.Connect(bot.Irc_server); err == nil {
-			break
-		} else {
-			log.Println(err)
-		}
-		time.Sleep(time.Second * 5)
-	}
+	ircobj.AddCallback(irc.WELCOME, func(msg irc.Message) {
+		ircobj.Join(bot.Irc_channel)
+	})
+	ircobj.AddCallback(irc.PING, func(msg irc.Message) {
+		ircobj.Pong()
+	})
+	ircobj.AddCallback(irc.NICKTAKEN, func(msg irc.Message) {
+		ircobj.Nick += "_"
+		ircobj.NewNick(ircobj.Nick)
+	})
+	//Connect
+	ircobj.Start()
 	// Prints to IRC channel
 	print := func(p *multi) {
 		s := p.p.parse(&p.last_id)
 		for _, v := range s {
-			if ircobj.Connected() {
-				ircobj.Privmsg(bot.Irc_channel, v)
+			for _, ch := range bot.Irc_channel {
+				ircobj.PrivMsg(ch, v)
 			}
 			// Delay between posts to avoid flooding
 			time.Sleep(time.Second * 1)
@@ -239,7 +242,13 @@ func Start(auth Oauth2, bot Irc, api Api) {
 			}
 		}
 	}()
-
-	//Irc Maintainence Loop
-	ircobj.Loop()
+	//Pinger
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			ircobj.Ping()
+		}
+	}()
+	//Exit on error
+	log.Println(<-ircobj.Errchan)
 }
