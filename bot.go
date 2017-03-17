@@ -1,4 +1,4 @@
-// Reddit Irc Bot that posts newest reddit posts from your frontpage or any subreddit
+//Package bot is Reddit Irc Bot that posts newest reddit posts from your frontpage or any subreddit
 package bot
 
 import (
@@ -14,33 +14,36 @@ import (
 	irc "github.com/ugjka/dumbirc"
 )
 
+//Oauth2 settings
 type Oauth2 struct {
-	Client_id string
+	ClientID  string
 	Secret    string
 	Developer string
 	Password  string
 	UserAgent string
 }
 
+//Irc settings
 type Irc struct {
-	Irc_nick    string
-	Irc_name    string
-	Irc_server  string
-	Irc_channel []string
-	Irc_tls     bool
+	IrcNick    string
+	IrcName    string
+	IrcServer  string
+	IrcChannel []string
+	IrcTLS     bool
 }
 
-type Api struct {
+//API settings
+type API struct {
 	Refresh  time.Duration
 	Endpoint []string
 }
 
 // Oauth2 json
 type token struct {
-	Access_token string `json:"access_token"`
-	Token_type   string `json:"token_type"`
-	Expires_in   uint   `json:"expires_in"`
-	Scope        string `json:"scope"`
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   uint   `json:"expires_in"`
+	Scope       string `json:"scope"`
 }
 
 // Posts json
@@ -51,7 +54,7 @@ type posts struct {
 				Subreddit string `json:"subreddit"`
 				Title     string `json:"title"`
 				Permalink string `json:"permalink"`
-				Id        string `json:"id"`
+				ID        string `json:"id"`
 			} `json:"data"`
 		} `json:"children"`
 	} `json:"data"`
@@ -60,20 +63,20 @@ type posts struct {
 type multi struct {
 	endpoint string
 	p        posts
-	last_id  uint64
+	lastID   uint64
 }
 
-const getTokenUrl = "https://www.reddit.com/api/v1/access_token"
+const getTokenURL = "https://www.reddit.com/api/v1/access_token"
 
 // Get Oaut2 token
 func getToken(auth Oauth2, t *token) error {
 	post := "grant_type=password&username=" + auth.Developer + "&password=" + auth.Password
-	req, err := http.NewRequest("POST", getTokenUrl, strings.NewReader(post))
+	req, err := http.NewRequest("POST", getTokenURL, strings.NewReader(post))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", auth.UserAgent)
-	req.SetBasicAuth(auth.Client_id, auth.Secret)
+	req.SetBasicAuth(auth.ClientID, auth.Secret)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -103,7 +106,7 @@ func fetchNewest(auth Oauth2, t *token, p *posts, endpoint string) error {
 		return err
 	}
 	req.Header.Set("User-Agent", auth.UserAgent)
-	req.Header.Set("Authorization", "bearer "+t.Access_token)
+	req.Header.Set("Authorization", "bearer "+t.AccessToken)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -127,30 +130,30 @@ func fetchNewest(auth Oauth2, t *token, p *posts, endpoint string) error {
 }
 
 // Makes a map of posts formatted for IRC
-func (p posts) parse(last_id *uint64) (s map[int]string) {
+func (p posts) parse(lastID *uint64) (s map[int]string) {
 	s = make(map[int]string)
-	for i, _ := range p.Data.Children {
-		id_uint := base36.Decode(p.Data.Children[i].Data.Id)
-		if id_uint > *last_id {
-			s[i] = "\x02\x035[reddit]\x03 \x0312[/r/" + p.Data.Children[i].Data.Subreddit + "]\x03 " + p.Data.Children[i].Data.Title + "\x02" + " " + "https://redd.it/" + p.Data.Children[i].Data.Id
+	for i := range p.Data.Children {
+		idUint := base36.Decode(p.Data.Children[i].Data.ID)
+		if idUint > *lastID {
+			s[i] = "\x02\x035[reddit]\x03 \x0312[/r/" + p.Data.Children[i].Data.Subreddit + "]\x03 " + p.Data.Children[i].Data.Title + "\x02" + " " + "https://redd.it/" + p.Data.Children[i].Data.ID
 		}
 	}
 
 	// Id's dont come ordered so we need to figure out the biggest ID I'd so that we
 	// dont get duplicate posts
-	var max uint64 = 0
+	var max uint64
 	for i := 0; i < len(p.Data.Children); i++ {
-		id_uint := base36.Decode(p.Data.Children[i].Data.Id)
-		if max < id_uint {
-			max = id_uint
+		idUint := base36.Decode(p.Data.Children[i].Data.ID)
+		if max < idUint {
+			max = idUint
 		}
 	}
-	*last_id = max
+	*lastID = max
 	return s
 }
 
 // Start the bot
-func Start(auth Oauth2, bot Irc, api Api) {
+func Start(auth Oauth2, bot Irc, api API) {
 	// Updated by getToken
 	var t token
 	// Initialize empty struct
@@ -162,10 +165,10 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	//Ignore first run
 	started := false
 	// Start the Irc Bot
-	ircobj := irc.New(bot.Irc_nick, bot.Irc_name, bot.Irc_server, bot.Irc_tls)
+	ircobj := irc.New(bot.IrcNick, bot.IrcName, bot.IrcServer, bot.IrcTLS)
 	//Rejoin the channel on reconnect
 	ircobj.AddCallback(irc.WELCOME, func(msg irc.Message) {
-		ircobj.Join(bot.Irc_channel)
+		ircobj.Join(bot.IrcChannel)
 	})
 	ircobj.AddCallback(irc.PING, func(msg irc.Message) {
 		ircobj.Pong()
@@ -178,9 +181,9 @@ func Start(auth Oauth2, bot Irc, api Api) {
 	ircobj.Start()
 	// Prints to IRC channel
 	print := func(p *multi) {
-		s := p.p.parse(&p.last_id)
+		s := p.p.parse(&p.lastID)
 		for _, v := range s {
-			for _, ch := range bot.Irc_channel {
+			for _, ch := range bot.IrcChannel {
 				ircobj.PrivMsg(ch, v)
 			}
 			// Delay between posts to avoid flooding
@@ -200,7 +203,7 @@ func Start(auth Oauth2, bot Irc, api Api) {
 				time.Sleep(time.Minute)
 				continue
 			}
-			for i, _ := range multiSlice {
+			for i := range multiSlice {
 				if err := fetchNewest(auth, &t, &multiSlice[i].p, multiSlice[i].endpoint); err != nil {
 					log.Println(err)
 					time.Sleep(time.Minute)
@@ -209,12 +212,12 @@ func Start(auth Oauth2, bot Irc, api Api) {
 				time.Sleep(time.Second)
 			}
 			started = true
-			for i, _ := range multiSlice {
-				multiSlice[i].p.parse(&multiSlice[i].last_id)
+			for i := range multiSlice {
+				multiSlice[i].p.parse(&multiSlice[i].lastID)
 			}
 		}
 
-		tokenTicker := time.NewTicker(time.Second*time.Duration(t.Expires_in) - api.Refresh)
+		tokenTicker := time.NewTicker(time.Second*time.Duration(t.ExpiresIn) - api.Refresh)
 		postsTicker := time.NewTicker(api.Refresh)
 
 		// Perform tasks on tickers
@@ -231,7 +234,7 @@ func Start(auth Oauth2, bot Irc, api Api) {
 					}
 				}
 			case <-postsTicker.C:
-				for i, _ := range multiSlice {
+				for i := range multiSlice {
 					if err := fetchNewest(auth, &t, &multiSlice[i].p, multiSlice[i].endpoint); err == nil {
 						print(&multiSlice[i])
 					} else {
@@ -249,6 +252,10 @@ func Start(auth Oauth2, bot Irc, api Api) {
 			ircobj.Ping()
 		}
 	}()
-	//Exit on error
-	log.Println(<-ircobj.Errchan)
+	//Irc loop/Recconect logic
+	for {
+		log.Println(<-ircobj.Errchan)
+		time.Sleep(time.Second * 30)
+		ircobj.Start()
+	}
 }
