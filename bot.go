@@ -174,7 +174,11 @@ func Start(auth Oauth2, bot Irc, api API) {
 		ircobj.Pong()
 	})
 	ircobj.AddCallback(irc.NICKTAKEN, func(msg irc.Message) {
-		ircobj.Nick += "_"
+		if strings.HasSuffix(ircobj.Nick, "_") {
+			ircobj.Nick = ircobj.Nick[:len(ircobj.Nick)-1]
+		} else {
+			ircobj.Nick += "_"
+		}
 		ircobj.NewNick(ircobj.Nick)
 	})
 	//Connect
