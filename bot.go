@@ -14,6 +14,8 @@ import (
 	irc "github.com/ugjka/dumbirc"
 )
 
+var client = &http.Client{}
+
 //Oauth2 settings
 type Oauth2 struct {
 	ClientID  string
@@ -78,7 +80,6 @@ func getToken(auth Oauth2, t *token) error {
 	req.Header.Set("User-Agent", auth.UserAgent)
 	req.SetBasicAuth(auth.ClientID, auth.Secret)
 
-	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -108,7 +109,6 @@ func fetchNewest(auth Oauth2, t *token, p *posts, endpoint string) error {
 	req.Header.Set("User-Agent", auth.UserAgent)
 	req.Header.Set("Authorization", "bearer "+t.AccessToken)
 
-	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
