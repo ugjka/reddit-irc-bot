@@ -167,13 +167,13 @@ func Start(auth Oauth2, bot Irc, api API) {
 	// Start the Irc Bot
 	ircobj := irc.New(bot.IrcNick, bot.IrcName, bot.IrcServer, bot.IrcTLS)
 	//Rejoin the channel on reconnect
-	ircobj.AddCallback(irc.WELCOME, func(msg irc.Message) {
+	ircobj.AddCallback(irc.WELCOME, func(msg *irc.Message) {
 		ircobj.Join(bot.IrcChannel)
 	})
-	ircobj.AddCallback(irc.PING, func(msg irc.Message) {
+	ircobj.AddCallback(irc.PING, func(msg *irc.Message) {
 		ircobj.Pong()
 	})
-	ircobj.AddCallback(irc.NICKTAKEN, func(msg irc.Message) {
+	ircobj.AddCallback(irc.NICKTAKEN, func(msg *irc.Message) {
 		if strings.HasSuffix(ircobj.Nick, "_") {
 			ircobj.Nick = ircobj.Nick[:len(ircobj.Nick)-1]
 		} else {
@@ -188,7 +188,7 @@ func Start(auth Oauth2, bot Irc, api API) {
 		s := p.p.parse(&p.lastID)
 		for _, v := range s {
 			for _, ch := range bot.IrcChannel {
-				ircobj.PrivMsg(ch, v)
+				ircobj.Msg(ch, v)
 			}
 			// Delay between posts to avoid flooding
 			time.Sleep(time.Second * 1)
