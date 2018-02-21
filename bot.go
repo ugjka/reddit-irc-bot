@@ -10,11 +10,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ugjka/dumbirc"
+
 	"github.com/martinlindhe/base36"
-	irc "github.com/ugjka/dumbirc"
 )
 
 var client = &http.Client{}
+
+//Bot is a bot construct
+type Bot struct {
+	oauth       Oauth2
+	irc         Irc
+	api         API
+	token       *token
+	ircConn     *dumbirc.Connection
+	fetchTicker *time.Ticker
+	lastID      uint64
+	send        chan string
+}
 
 //Oauth2 settings
 type Oauth2 struct {
@@ -48,218 +61,262 @@ type token struct {
 	Scope       string `json:"scope"`
 }
 
-// Posts json
-type posts struct {
-	Data struct {
-		Children []struct {
-			Data struct {
-				Subreddit string `json:"subreddit"`
-				Title     string `json:"title"`
-				Permalink string `json:"permalink"`
-				ID        string `json:"id"`
-			} `json:"data"`
-		} `json:"children"`
-	} `json:"data"`
+// Post ...
+type post struct {
+	Subreddit string
+	Title     string
+	Permalink string
+	ID        string
+	IDdecoded uint64
 }
 
-type multi struct {
-	endpoint string
-	p        posts
-	lastID   uint64
+// Posts ...
+type posts []post
+
+func (p post) String() string {
+	return "\x02\x035[reddit]\x03 \x0312[/r/" + p.Subreddit + "]\x03 " + p.Title + "\x02" + " " + "https://redd.it/" + p.ID
+}
+
+// UnmarshalJSON ...
+func (p *posts) UnmarshalJSON(data []byte) error {
+	var v = struct {
+		Data struct {
+			Children []struct {
+				Data struct {
+					Subreddit string `json:"subreddit"`
+					Title     string `json:"title"`
+					Permalink string `json:"permalink"`
+					ID        string `json:"id"`
+				} `json:"data"`
+			} `json:"children"`
+		} `json:"data"`
+	}{}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	for _, v := range v.Data.Children {
+		*p = append(*p, post{
+			Subreddit: v.Data.Subreddit,
+			Title:     v.Data.Title,
+			Permalink: v.Data.Permalink,
+			ID:        v.Data.ID,
+			IDdecoded: base36.Decode(v.Data.ID),
+		})
+	}
+	return nil
 }
 
 const getTokenURL = "https://www.reddit.com/api/v1/access_token"
 
 // Get Oaut2 token
-func getToken(auth Oauth2, t *token) error {
-	post := "grant_type=password&username=" + auth.Developer + "&password=" + auth.Password
+func (o Oauth2) getToken() (t *token, err error) {
+	post := "grant_type=password&username=" + o.Developer + "&password=" + o.Password
 	req, err := http.NewRequest("POST", getTokenURL, strings.NewReader(post))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	req.Header.Set("User-Agent", auth.UserAgent)
-	req.SetBasicAuth(auth.ClientID, auth.Secret)
+	req.Header.Set("User-Agent", o.UserAgent)
+	req.SetBasicAuth(o.ClientID, o.Secret)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.Status != "200 OK" {
-		return errors.New("getToken response error: " + resp.Status)
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("Token response error: " + resp.Status)
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	if err := json.Unmarshal(body, &t); err != nil {
-		return err
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, err
 	}
-	return nil
+	return t, nil
 }
 
 // Get posts
-func fetchNewest(auth Oauth2, t *token, p *posts, endpoint string) error {
+func (b *Bot) fetch(endpoint string) (p *posts, err error) {
 	req, err := http.NewRequest("GET", "https://oauth.reddit.com"+endpoint, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	req.Header.Set("User-Agent", auth.UserAgent)
-	req.Header.Set("Authorization", "bearer "+t.AccessToken)
-
+	req.Header.Set("User-Agent", b.oauth.UserAgent)
+	req.Header.Set("Authorization", "bearer "+b.token.AccessToken)
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return
 	}
 	defer resp.Body.Close()
 
-	if resp.Status != "200 OK" {
-		return errors.New("fetchNewest response error: " + resp.Status)
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("fetch response error: " + resp.Status)
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return
 	}
+	err = json.Unmarshal(body, &p)
+	return
+}
 
-	if err := json.Unmarshal(body, &p); err != nil {
-		return err
+//New creates a new bot object
+func New(oauth Oauth2, irc Irc, api API) *Bot {
+	return &Bot{
+		oauth:       oauth,
+		irc:         irc,
+		api:         api,
+		ircConn:     dumbirc.New(irc.IrcNick, irc.IrcName, irc.IrcServer, irc.IrcTLS),
+		fetchTicker: time.NewTicker(api.Refresh),
+		send:        make(chan string, 100),
+	}
+}
+
+func (b *Bot) addCallbacks() {
+	irc := b.ircConn
+	irc.AddCallback(dumbirc.WELCOME, func(msg *dumbirc.Message) {
+		log.Println("Joining channels")
+		irc.Join(b.irc.IrcChannel)
+	})
+	irc.AddCallback(dumbirc.PING, func(msg *dumbirc.Message) {
+		log.Println("PING received, sending PONG")
+		irc.Pong()
+	})
+	irc.AddCallback(dumbirc.NICKTAKEN, func(msg *dumbirc.Message) {
+		log.Println("Nick taken, changing nick")
+		irc.Nick = changeNick(irc.Nick)
+		irc.NewNick(irc.Nick)
+	})
+}
+
+func changeNick(n string) string {
+	if len(n) < 16 {
+		n += "_"
+		return n
+	}
+	n = strings.TrimRight(n, "_")
+	if len(n) > 12 {
+		n = n[:12] + "_"
+	}
+	return n
+}
+
+func (b *Bot) firstRun() error {
+	for _, v := range b.api.Endpoint {
+		posts, err := b.fetch(v)
+		if err != nil {
+			log.Println("First run", err)
+			return err
+		}
+		for _, v := range *posts {
+			if b.lastID < v.IDdecoded {
+				b.lastID = v.IDdecoded
+			}
+		}
 	}
 	return nil
 }
 
-// Makes a map of posts formatted for IRC
-func (p posts) parse(lastID *uint64) (s map[int]string) {
-	s = make(map[int]string)
-	for i := range p.Data.Children {
-		idUint := base36.Decode(p.Data.Children[i].Data.ID)
-		if idUint > *lastID {
-			s[i] = "\x02\x035[reddit]\x03 \x0312[/r/" + p.Data.Children[i].Data.Subreddit + "]\x03 " + p.Data.Children[i].Data.Title + "\x02" + " " + "https://redd.it/" + p.Data.Children[i].Data.ID
+//Start starts the bot
+func (b *Bot) Start() {
+	b.addCallbacks()
+	b.ircConn.Start()
+	var err error
+	for {
+		log.Println("Fetching oauth token")
+		b.token, err = b.oauth.getToken()
+		if err == nil {
+			log.Println("Got oauth token!")
+			break
 		}
+		log.Println("Could not get oauth token", err)
+		log.Println("Retrying to get ouauth token")
+		time.Sleep(time.Minute)
 	}
-
-	// Id's dont come ordered so we need to figure out the biggest ID I'd so that we
-	// dont get duplicate posts
-	var max uint64
-	for i := 0; i < len(p.Data.Children); i++ {
-		idUint := base36.Decode(p.Data.Children[i].Data.ID)
-		if max < idUint {
-			max = idUint
+	for {
+		err := b.firstRun()
+		if err == nil {
+			log.Println("first run succeeded")
+			break
 		}
+		log.Println("first run failed:", err)
+		time.Sleep(time.Minute)
+		log.Println("retrying first run")
 	}
-	*lastID = max
-	return s
+	go b.printer()
+	go b.ircControl()
+	b.mainLoop()
 }
 
-// Start the bot
-func Start(auth Oauth2, bot Irc, api API) {
-	// Updated by getToken
-	var t token
-	// Initialize empty struct
-	var p posts
-	multiSlice := make([]multi, 0)
-	for _, k := range api.Endpoint {
-		multiSlice = append(multiSlice, multi{k, p, 0})
+func (b *Bot) printer() {
+	irc := b.ircConn
+	for v := range b.send {
+		irc.MsgBulk(b.irc.IrcChannel, v)
+		time.Sleep(time.Second * 1)
 	}
-	//Ignore first run
-	started := false
-	// Start the Irc Bot
-	ircobj := irc.New(bot.IrcNick, bot.IrcName, bot.IrcServer, bot.IrcTLS)
-	//Rejoin the channel on reconnect
-	ircobj.AddCallback(irc.WELCOME, func(msg *irc.Message) {
-		ircobj.Join(bot.IrcChannel)
-	})
-	ircobj.AddCallback(irc.PING, func(msg *irc.Message) {
-		ircobj.Pong()
-	})
-	ircobj.AddCallback(irc.NICKTAKEN, func(msg *irc.Message) {
-		if strings.HasSuffix(ircobj.Nick, "_") {
-			ircobj.Nick = ircobj.Nick[:len(ircobj.Nick)-1]
-		} else {
-			ircobj.Nick += "_"
-		}
-		ircobj.NewNick(ircobj.Nick)
-	})
-	//Connect
-	ircobj.Start()
-	// Prints to IRC channel
-	print := func(p *multi) {
-		s := p.p.parse(&p.lastID)
-		for _, v := range s {
-			for _, ch := range bot.IrcChannel {
-				ircobj.Msg(ch, v)
-			}
-			// Delay between posts to avoid flooding
-			time.Sleep(time.Second * 1)
-		}
-	}
+}
 
-	go func() {
-		// Initialize
-		for {
-			if started == true {
-				break
-			}
-
-			if err := getToken(auth, &t); err != nil {
-				log.Println(err)
-				time.Sleep(time.Minute)
-				continue
-			}
-			for i := range multiSlice {
-				if err := fetchNewest(auth, &t, &multiSlice[i].p, multiSlice[i].endpoint); err != nil {
-					log.Println(err)
-					time.Sleep(time.Minute)
-					continue
-				}
-				time.Sleep(time.Second)
-			}
-			started = true
-			for i := range multiSlice {
-				multiSlice[i].p.parse(&multiSlice[i].lastID)
-			}
-		}
-
-		tokenTicker := time.NewTicker(time.Second*time.Duration(t.ExpiresIn) - api.Refresh)
-		postsTicker := time.NewTicker(api.Refresh)
-
-		// Perform tasks on tickers
-		for {
-			select {
-			case <-tokenTicker.C:
-				if err := getToken(auth, &t); err != nil {
-					log.Println("Oauth2: ", err)
-					for {
-						time.Sleep(time.Minute)
-						if getToken(auth, &t) == nil {
-							break
-						}
-					}
-				}
-			case <-postsTicker.C:
-				for i := range multiSlice {
-					if err := fetchNewest(auth, &t, &multiSlice[i].p, multiSlice[i].endpoint); err == nil {
-						print(&multiSlice[i])
-					} else {
-						log.Println("Fetching Posts: ", err)
-					}
-					time.Sleep(time.Second)
-				}
-			}
-		}
-	}()
-	//Pinger
-	go func() {
-		for {
-			time.Sleep(time.Minute)
-			ircobj.Ping()
-		}
-	}()
-	//Irc loop/Recconect logic
+func (b *Bot) ircControl() {
+	irc := b.ircConn
+	pingTick := time.NewTicker(time.Minute * 1)
 	for {
-		log.Println(<-ircobj.Errchan)
-		time.Sleep(time.Second * 30)
-		ircobj.Start()
+		select {
+		case err := <-irc.Errchan:
+			log.Println("Irc error", err)
+			time.Sleep(time.Minute * 1)
+			log.Println("Restarting irc")
+			b.ircConn.Start()
+		case <-pingTick.C:
+			irc.Ping()
+		}
 	}
+}
+
+func (b *Bot) mainLoop() {
+	if b.token == nil {
+		log.Fatal("Token is nil")
+	}
+	tokenTimer := time.NewTimer((time.Second*time.Duration(b.token.ExpiresIn) - b.api.Refresh))
+	var err error
+	for {
+		select {
+		case <-b.fetchTicker.C:
+			b.getPosts()
+		case <-tokenTimer.C:
+			for {
+				b.token, err = b.oauth.getToken()
+				if err == nil {
+					break
+				}
+				log.Println("Could not get oauth token", err)
+				log.Println("Retrying to get oauth token")
+				time.Sleep(time.Minute)
+			}
+			tokenTimer.Stop()
+			tokenTimer = time.NewTimer((time.Second*time.Duration(b.token.ExpiresIn) - b.api.Refresh))
+		}
+
+	}
+}
+
+func (b *Bot) getPosts() {
+	var tmpLargest uint64
+	for _, v := range b.api.Endpoint {
+		posts, err := b.fetch(v)
+		if err != nil {
+			log.Println("Could not fetch posts:", err)
+			return
+		}
+		for _, v := range *posts {
+			if tmpLargest < v.IDdecoded {
+				tmpLargest = v.IDdecoded
+			}
+			if b.lastID < v.IDdecoded {
+				b.send <- v.String()
+			}
+		}
+	}
+	b.lastID = tmpLargest
 }
