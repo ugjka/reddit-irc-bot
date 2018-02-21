@@ -28,6 +28,7 @@ type Bot struct {
 	fetchTicker *time.Ticker
 	lastID      uint64
 	send        chan string
+	pp          chan bool
 }
 
 //Oauth2 settings
@@ -175,6 +176,7 @@ func New(oauth Oauth2, irc Irc, api API) *Bot {
 		ircConn:     dumbirc.New(irc.IrcNick, irc.IrcName, irc.IrcServer, irc.IrcTLS),
 		fetchTicker: time.NewTicker(api.Refresh),
 		send:        make(chan string, 100),
+		pp:          make(chan bool, 1),
 	}
 }
 
@@ -193,6 +195,17 @@ func (b *Bot) addCallbacks() {
 		irc.Nick = changeNick(irc.Nick)
 		irc.NewNick(irc.Nick)
 	})
+	irc.AddCallback(dumbirc.ANYMESSAGE, func(msg *dumbirc.Message) {
+		pingpong(b.pp)
+	})
+}
+
+func pingpong(c chan bool) {
+	select {
+	case c <- true:
+	default:
+		return
+	}
 }
 
 func changeNick(n string) string {
@@ -273,7 +286,12 @@ func (b *Bot) ircControl() {
 			time.Sleep(time.Minute * 1)
 			irc.Start()
 		case <-pingTick.C:
-			irc.Ping()
+			select {
+			case <-b.pp:
+				irc.Ping()
+			default:
+				log.Println("Got No Pong")
+			}
 		}
 	}
 }
