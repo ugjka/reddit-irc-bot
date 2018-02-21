@@ -325,6 +325,7 @@ func (b *Bot) mainLoop() {
 
 func (b *Bot) getPosts() {
 	var tmpLargest uint64
+	dup := make(map[uint64]bool)
 	for _, v := range b.api.Endpoint {
 		posts, err := b.fetch(v)
 		if err != nil {
@@ -332,6 +333,10 @@ func (b *Bot) getPosts() {
 			return
 		}
 		for _, v := range *posts {
+			if _, ok := dup[v.IDdecoded]; ok {
+				continue
+			}
+			dup[v.IDdecoded] = true
 			if tmpLargest < v.IDdecoded {
 				tmpLargest = v.IDdecoded
 			}
