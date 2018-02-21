@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -110,8 +111,11 @@ const getTokenURL = "https://www.reddit.com/api/v1/access_token"
 
 // Get Oaut2 token
 func (o Oauth2) getToken() (t *token, err error) {
-	post := "grant_type=password&username=" + o.Developer + "&password=" + o.Password
-	req, err := http.NewRequest("POST", getTokenURL, strings.NewReader(post))
+	values := url.Values{}
+	values.Add("grant_type", "password")
+	values.Add("username", o.Developer)
+	values.Add("password", o.Password)
+	req, err := http.NewRequest("POST", getTokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
 		return nil, err
 	}
@@ -265,9 +269,9 @@ func (b *Bot) ircControl() {
 		select {
 		case err := <-irc.Errchan:
 			log.Println("Irc error", err)
-			time.Sleep(time.Minute * 1)
 			log.Println("Restarting irc")
-			b.ircConn.Start()
+			time.Sleep(time.Minute * 1)
+			irc.Start()
 		case <-pingTick.C:
 			irc.Ping()
 		}
