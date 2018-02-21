@@ -3,7 +3,7 @@ Irc bot that posts newest posts from your frontpage or anywhere else
 
 ```go
 func main() {
-	bot.Start(bot.Oauth2{
+	bot.New(bot.Oauth2{
 		ClientID: "<your reddit app id>",
 		Secret:    "<your reddit app secret>"",
 		Developer: "<your reddit username>",
@@ -19,6 +19,6 @@ func main() {
 		Refresh:  time.Minute, // How often check for new posts
 		// Api endpoints for your frontpage, can be anything like /r/askreddit/new
 		Endpoint: []string{"/new?limit=20", "/r/askreddit/new?limit=20", "/me/m/mymulti/new?limit=20"}
-	})
+	}).Start()
 }
 ```
