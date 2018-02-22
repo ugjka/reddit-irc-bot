@@ -300,7 +300,7 @@ func (b *Bot) mainLoop() {
 	if b.token == nil {
 		log.Fatal("Token is nil")
 	}
-	tokenTimer := time.NewTimer((time.Second*time.Duration(b.token.ExpiresIn) - b.api.Refresh))
+	tokenTimer := time.NewTimer((time.Second * time.Duration(b.token.ExpiresIn)) - b.api.Refresh)
 	var err error
 	for {
 		select {
@@ -317,7 +317,7 @@ func (b *Bot) mainLoop() {
 				time.Sleep(time.Minute)
 			}
 			tokenTimer.Stop()
-			tokenTimer = time.NewTimer((time.Second*time.Duration(b.token.ExpiresIn) - b.api.Refresh))
+			tokenTimer = time.NewTimer((time.Second * time.Duration(b.token.ExpiresIn)) - b.api.Refresh)
 		}
 
 	}
